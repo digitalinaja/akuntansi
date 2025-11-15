@@ -14,11 +14,32 @@
   const trialTotalCredit = document.getElementById("trialTotalCredit");
   const laporanLabaRugi = document.getElementById("laporanLabaRugi");
   const laporanNeraca = document.getElementById("laporanNeraca");
+  const tableWorksheetBody = document.querySelector("#tableNeracaLajur tbody");
+  const wsSaldoDebit = document.getElementById("wsSaldoDebit");
+  const wsSaldoKredit = document.getElementById("wsSaldoKredit");
+  const wsLrDebit = document.getElementById("wsLrDebit");
+  const wsLrKredit = document.getElementById("wsLrKredit");
+  const wsNeracaDebit = document.getElementById("wsNeracaDebit");
+  const wsNeracaKredit = document.getElementById("wsNeracaKredit");
+  const tableAccountsBody = document.querySelector("#tableAccounts tbody");
+  const btnAddAccount = document.getElementById("btnAddAccount");
+  const modalAccount = document.getElementById("modalAccount");
+  const formAccount = document.getElementById("formAccount");
+  const accIdInput = document.getElementById("accId");
+  const accNameInput = document.getElementById("accName");
+  const accTypeSelect = document.getElementById("accType");
+  const accNormalSelect = document.getElementById("accNormalBalance");
+
+  let accountModal = null;
+  let currentAccountId = null;
 
   const btnExport = document.getElementById("btnExport");
   const inputImport = document.getElementById("inputImport");
 
   footerYear.textContent = new Date().getFullYear();
+  if (modalAccount && typeof bootstrap !== "undefined") {
+    accountModal = new bootstrap.Modal(modalAccount);
+  }
 
   function showView(viewName) {
     views.forEach(v => {
@@ -32,12 +53,16 @@
       link.classList.toggle("active", link.dataset.view === viewName);
     });
 
-    if (viewName === "jurnal") {
+    if (viewName === "akun") {
+      renderAccountsTable();
+    } else if (viewName === "jurnal") {
       renderJurnal();
     } else if (viewName === "buku-besar") {
       renderBukuBesar();
     } else if (viewName === "trial-balance") {
       renderTrialBalance();
+    } else if (viewName === "neraca-lajur") {
+      renderNeracaLajur();
     } else if (viewName === "laporan") {
       renderLaporan();
     }
@@ -60,6 +85,29 @@
         opt.textContent = `${acc.id} - ${acc.name}`;
         select.appendChild(opt);
       });
+    });
+  }
+
+  function renderAccountsTable() {
+    if (!tableAccountsBody) {
+      return;
+    }
+    const accounts = window.accountManager.getAll();
+    tableAccountsBody.innerHTML = "";
+    accounts.forEach(acc => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${acc.id}</td>
+        <td>${acc.name}</td>
+        <td>${acc.type}</td>
+        <td>${acc.normalBalance}</td>
+        <td class="text-end">
+          <button type="button" class="btn btn-sm btn-outline-primary btn-edit-account" data-id="${acc.id}">
+            <i class="bi bi-pencil-square"></i>
+          </button>
+        </td>
+      `;
+      tableAccountsBody.appendChild(row);
     });
   }
 
@@ -190,6 +238,34 @@
     const balanced = trial.totalDebit === trial.totalCredit;
     trialTotalDebit.parentElement.classList.toggle("table-success", balanced);
     trialTotalDebit.parentElement.classList.toggle("table-danger", !balanced);
+  }
+
+  function renderNeracaLajur() {
+    if (!tableWorksheetBody) {
+      return;
+    }
+    const ws = window.reportService.getWorksheet();
+    tableWorksheetBody.innerHTML = "";
+    ws.rows.forEach(r => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${r.id} - ${r.name}</td>
+        <td class="text-end">${r.saldoDebit ? r.saldoDebit.toLocaleString("id-ID", { minimumFractionDigits: 2 }) : ""}</td>
+        <td class="text-end">${r.saldoKredit ? r.saldoKredit.toLocaleString("id-ID", { minimumFractionDigits: 2 }) : ""}</td>
+        <td class="text-end">${r.lrDebit ? r.lrDebit.toLocaleString("id-ID", { minimumFractionDigits: 2 }) : ""}</td>
+        <td class="text-end">${r.lrKredit ? r.lrKredit.toLocaleString("id-ID", { minimumFractionDigits: 2 }) : ""}</td>
+        <td class="text-end">${r.neracaDebit ? r.neracaDebit.toLocaleString("id-ID", { minimumFractionDigits: 2 }) : ""}</td>
+        <td class="text-end">${r.neracaKredit ? r.neracaKredit.toLocaleString("id-ID", { minimumFractionDigits: 2 }) : ""}</td>
+      `;
+      tableWorksheetBody.appendChild(row);
+    });
+
+    if (wsSaldoDebit) wsSaldoDebit.textContent = ws.totalSaldoDebit.toLocaleString("id-ID", { minimumFractionDigits: 2 });
+    if (wsSaldoKredit) wsSaldoKredit.textContent = ws.totalSaldoKredit.toLocaleString("id-ID", { minimumFractionDigits: 2 });
+    if (wsLrDebit) wsLrDebit.textContent = ws.totalLrDebit.toLocaleString("id-ID", { minimumFractionDigits: 2 });
+    if (wsLrKredit) wsLrKredit.textContent = ws.totalLrKredit.toLocaleString("id-ID", { minimumFractionDigits: 2 });
+    if (wsNeracaDebit) wsNeracaDebit.textContent = ws.totalNeracaDebit.toLocaleString("id-ID", { minimumFractionDigits: 2 });
+    if (wsNeracaKredit) wsNeracaKredit.textContent = ws.totalNeracaKredit.toLocaleString("id-ID", { minimumFractionDigits: 2 });
   }
 
   function renderLaporan() {
@@ -357,6 +433,7 @@
         window.reportService = new ReportService(window.accountManager, window.journalManager);
         populateAccountOptions();
         renderTransaksiTable();
+        renderAccountsTable();
         alert("Data berhasil di-import.");
       } catch (err) {
         console.error(err);
@@ -370,5 +447,66 @@
   populateAccountOptions();
   renderTransaksiTable();
   showView("transaksi");
-})();
 
+  if (btnAddAccount && formAccount && tableAccountsBody) {
+    btnAddAccount.addEventListener("click", () => {
+      currentAccountId = null;
+      formAccount.reset();
+      accIdInput.removeAttribute("readonly");
+      document.getElementById("modalAccountTitle").textContent = "Tambah Akun";
+      if (accountModal) {
+        accountModal.show();
+      }
+    });
+
+    tableAccountsBody.addEventListener("click", e => {
+      const btn = e.target.closest(".btn-edit-account");
+      if (!btn) return;
+      const id = btn.getAttribute("data-id");
+      const acc = window.accountManager.getById(id);
+      if (!acc) return;
+      currentAccountId = id;
+      accIdInput.value = acc.id;
+      accIdInput.setAttribute("readonly", "readonly");
+      accNameInput.value = acc.name;
+      accTypeSelect.value = acc.type;
+      accNormalSelect.value = acc.normalBalance;
+      document.getElementById("modalAccountTitle").textContent = "Edit Akun";
+      if (accountModal) {
+        accountModal.show();
+      }
+    });
+
+    formAccount.addEventListener("submit", e => {
+      e.preventDefault();
+      const id = accIdInput.value.trim();
+      const name = accNameInput.value.trim();
+      const type = accTypeSelect.value;
+      const normalBalance = accNormalSelect.value;
+
+      if (!id || !name || !type || !normalBalance) {
+        alert("Semua field akun wajib diisi.");
+        return;
+      }
+
+      try {
+        if (!currentAccountId) {
+          window.accountManager.addAccount({ id, name, type, normalBalance });
+        } else {
+          window.accountManager.updateAccount(currentAccountId, { name, type, normalBalance });
+        }
+      } catch (err) {
+        alert(err.message || "Gagal menyimpan akun.");
+        return;
+      }
+
+      populateAccountOptions();
+      renderAccountsTable();
+      renderTransaksiTable();
+
+      if (accountModal) {
+        accountModal.hide();
+      }
+    });
+  }
+})();

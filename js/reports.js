@@ -142,7 +142,65 @@ class ReportService {
 
     return { aset, kewajiban, modal, totalAset, totalKewajiban, totalModal };
   }
+
+  getWorksheet() {
+    const balances = this._calculateBalances();
+    const rows = [];
+    let totalSaldoDebit = 0;
+    let totalSaldoKredit = 0;
+    let totalLrDebit = 0;
+    let totalLrKredit = 0;
+    let totalNeracaDebit = 0;
+    let totalNeracaKredit = 0;
+
+    Object.values(balances).forEach(b => {
+      const account = b.account;
+      const net = b.debit - b.credit;
+      const saldoDebit = net > 0 ? net : 0;
+      const saldoKredit = net < 0 ? -net : 0;
+
+      let lrDebit = 0;
+      let lrKredit = 0;
+      let neracaDebit = 0;
+      let neracaKredit = 0;
+
+      if (account.type === "Pendapatan" || account.type === "Beban") {
+        lrDebit = saldoDebit;
+        lrKredit = saldoKredit;
+      } else if (account.type === "Aset" || account.type === "Kewajiban" || account.type === "Modal") {
+        neracaDebit = saldoDebit;
+        neracaKredit = saldoKredit;
+      }
+
+      rows.push({
+        id: account.id,
+        name: account.name,
+        saldoDebit,
+        saldoKredit,
+        lrDebit,
+        lrKredit,
+        neracaDebit,
+        neracaKredit
+      });
+
+      totalSaldoDebit += saldoDebit;
+      totalSaldoKredit += saldoKredit;
+      totalLrDebit += lrDebit;
+      totalLrKredit += lrKredit;
+      totalNeracaDebit += neracaDebit;
+      totalNeracaKredit += neracaKredit;
+    });
+
+    return {
+      rows,
+      totalSaldoDebit,
+      totalSaldoKredit,
+      totalLrDebit,
+      totalLrKredit,
+      totalNeracaDebit,
+      totalNeracaKredit
+    };
+  }
 }
 
 window.reportService = new ReportService(window.accountManager, window.journalManager);
-

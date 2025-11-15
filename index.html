@@ -17,10 +17,12 @@
       </button>
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="#" data-view="akun">Akun</a></li>
           <li class="nav-item"><a class="nav-link active" href="#" data-view="transaksi">Transaksi Harian</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-view="jurnal">Jurnal Umum</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-view="buku-besar">Buku Besar</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-view="trial-balance">Trial Balance</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" data-view="neraca-lajur">Neraca Lajur</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-view="laporan">Laporan</a></li>
         </ul>
         <div class="d-flex gap-2">
@@ -37,6 +39,32 @@
   </nav>
 
   <main class="container mb-4">
+    <div id="view-akun" class="app-view d-none">
+      <h2 class="h4 mb-3">Daftar Akun</h2>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <p class="mb-0 text-muted small">
+          Kelola akun yang digunakan di jurnal (tambah/edit).
+        </p>
+        <button class="btn btn-sm btn-primary" id="btnAddAccount" type="button">
+          <i class="bi bi-plus-circle me-1"></i>Tambah Akun
+        </button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="tableAccounts">
+          <thead class="table-light">
+            <tr>
+              <th>Kode</th>
+              <th>Nama</th>
+              <th>Tipe</th>
+              <th>Saldo Normal</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <div id="view-transaksi" class="app-view">
       <h2 class="h4 mb-3">Transaksi Harian</h2>
       <form id="formTransaksi" class="row g-3 mb-4">
@@ -136,6 +164,37 @@
       </div>
     </div>
 
+    <div id="view-neraca-lajur" class="app-view d-none">
+      <h2 class="h4 mb-3">Neraca Lajur / Kertas Kerja</h2>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="tableNeracaLajur">
+          <thead class="table-light">
+            <tr>
+              <th>Akun</th>
+              <th class="text-end">Saldo Debit</th>
+              <th class="text-end">Saldo Kredit</th>
+              <th class="text-end">Laba Rugi Debit</th>
+              <th class="text-end">Laba Rugi Kredit</th>
+              <th class="text-end">Neraca Debit</th>
+              <th class="text-end">Neraca Kredit</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr class="fw-bold">
+              <td>Jumlah</td>
+              <td id="wsSaldoDebit" class="text-end"></td>
+              <td id="wsSaldoKredit" class="text-end"></td>
+              <td id="wsLrDebit" class="text-end"></td>
+              <td id="wsLrKredit" class="text-end"></td>
+              <td id="wsNeracaDebit" class="text-end"></td>
+              <td id="wsNeracaKredit" class="text-end"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
     <div id="view-laporan" class="app-view d-none">
       <h2 class="h4 mb-3">Laporan Keuangan</h2>
       <div class="row g-4">
@@ -151,6 +210,53 @@
     </div>
   </main>
 
+  <div class="modal fade" id="modalAccount" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="formAccount">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalAccountTitle">Tambah Akun</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Kode Akun</label>
+              <input type="text" class="form-control" id="accId" required />
+              <div class="form-text">Contoh: 101, 201, 401.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nama Akun</label>
+              <input type="text" class="form-control" id="accName" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Tipe</label>
+              <select class="form-select" id="accType" required>
+                <option value="">Pilih tipe</option>
+                <option value="Aset">Aset</option>
+                <option value="Kewajiban">Kewajiban</option>
+                <option value="Modal">Modal</option>
+                <option value="Pendapatan">Pendapatan</option>
+                <option value="Beban">Beban</option>
+              </select>
+            </div>
+            <div class="mb-0">
+              <label class="form-label">Saldo Normal</label>
+              <select class="form-select" id="accNormalBalance" required>
+                <option value="">Pilih saldo normal</option>
+                <option value="Debit">Debit</option>
+                <option value="Kredit">Kredit</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+            <button type="submit" class="btn btn-primary btn-sm">Simpan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <footer class="text-center text-muted small mb-3">
     &copy; <span id="footerYear"></span> Aplikasi Akuntansi Sederhana (LocalStorage)
   </footer>
@@ -163,4 +269,3 @@
   <script src="js/app.js"></script>
 </body>
 </html>
-

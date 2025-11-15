@@ -29,10 +29,28 @@ class AccountManager {
   }
 
   addAccount(account) {
+    const existing = this.getById(account.id);
+    if (existing) {
+      throw new Error("Kode akun sudah digunakan.");
+    }
     this.accounts.push(account);
     this.storage.saveAccounts(this.accounts);
+  }
+
+  updateAccount(id, updates) {
+    const index = this.accounts.findIndex(a => a.id === id);
+    if (index === -1) {
+      throw new Error("Akun tidak ditemukan.");
+    }
+    const current = this.accounts[index];
+    this.accounts[index] = {
+      ...current,
+      ...updates,
+      id: current.id
+    };
+    this.storage.saveAccounts(this.accounts);
+    return this.accounts[index];
   }
 }
 
 window.accountManager = new AccountManager(window.storageService);
-
