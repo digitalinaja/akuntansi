@@ -37,8 +37,21 @@
   const inputImport = document.getElementById("inputImport");
 
   footerYear.textContent = new Date().getFullYear();
-  if (modalAccount && typeof bootstrap !== "undefined") {
-    accountModal = new bootstrap.Modal(modalAccount);
+  const modalLib = (typeof window !== "undefined" && window.bootstrap) || null;
+  if (modalAccount && modalLib && typeof modalLib.Modal === "function") {
+    accountModal = new modalLib.Modal(modalAccount);
+  } else if (modalAccount) {
+    // Fallback sederhana bila Bootstrap JS tidak tersedia
+    accountModal = {
+      show() {
+        modalAccount.classList.add("show");
+        modalAccount.style.display = "block";
+      },
+      hide() {
+        modalAccount.classList.remove("show");
+        modalAccount.style.display = "none";
+      }
+    };
   }
 
   function showView(viewName) {
@@ -376,7 +389,7 @@
     laporanNeraca.appendChild(neracaTable);
   }
 
-  formTransaksi.addEventListener("submit", e => {
+  formTransaksi.addEventListener("submit", async e => {
     e.preventDefault();
     const date = document.getElementById("trxDate").value;
     const reference = document.getElementById("trxRef").value;
@@ -394,7 +407,7 @@
       return;
     }
 
-    window.journalManager.addJournal({
+    await window.journalManager.addJournal({
       date,
       description,
       reference,
@@ -407,8 +420,12 @@
     renderTransaksiTable();
   });
 
-  btnExport.addEventListener("click", () => {
-    const data = window.storageService.exportData();
+  btnExport.addEventListener("click", async () => {
+    if (!window.storageAdapter || !window.storageAdapter.supportsBackup()) {
+      alert("Backup hanya tersedia untuk adapter localStorage.");
+      return;
+    }
+    const data = await window.storageAdapter.exportData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -424,13 +441,18 @@
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = async event => {
       try {
         const data = JSON.parse(event.target.result);
-        window.storageService.importData(data);
-        window.accountManager = new AccountManager(window.storageService);
-        window.journalManager = new JournalManager(window.storageService, window.accountManager);
+        if (!window.storageAdapter || !window.storageAdapter.importData) {
+          alert("Import tidak tersedia untuk adapter ini.");
+          return;
+        }
+        await window.storageAdapter.importData(data);
+        window.accountManager = new AccountManager(window.storageAdapter);
+        window.journalManager = new JournalManager(window.storageAdapter, window.accountManager);
         window.reportService = new ReportService(window.accountManager, window.journalManager);
+        await Promise.all([window.accountManager.ready(), window.journalManager.ready()]);
         populateAccountOptions();
         renderTransaksiTable();
         renderAccountsTable();
@@ -444,9 +466,16 @@
     e.target.value = "";
   });
 
-  populateAccountOptions();
-  renderTransaksiTable();
-  showView("transaksi");
+  async function bootstrap() {
+    if (!window.accountManager || !window.journalManager || !window.reportService) {
+      return;
+    }
+    await Promise.all([window.accountManager.ready(), window.journalManager.ready()]);
+    populateAccountOptions();
+    renderTransaksiTable();
+    renderAccountsTable();
+    showView("transaksi");
+  }
 
   if (btnAddAccount && formAccount && tableAccountsBody) {
     btnAddAccount.addEventListener("click", () => {
@@ -509,4 +538,6 @@
       }
     });
   }
+
+  bootstrap();
 })();

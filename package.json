@@ -1,0 +1,16 @@
+{
+  "name": "akuntansi-app",
+  "version": "1.0.0",
+  "description": "Aplikasi akuntansi web dengan adapter storage (LocalStorage atau REST API berbasis Node.js).",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "start:dev": "NODE_ENV=development node server/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "knex": "^2.5.1",
+    "sqlite3": "^5.1.7"
+  }
+}
