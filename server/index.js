@@ -3,9 +3,11 @@ const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const knex = require("knex");
+const { authMiddleware } = require("./middleware/auth");
+const authRoutes = require("./routes/auth");
 
 const PORT = process.env.PORT || 4000;
-const DB_CLIENT = process.env.DB_CLIENT || "sqlite3"; // opsi: sqlite3 | mysql2 | pg (jika ditambahkan)
+const DB_CLIENT = process.env.DB_CLIENT || "sqlite3";
 const DB_FILENAME = process.env.DB_FILENAME || path.join(__dirname, "..", "data", "db.sqlite");
 const DB_HOST = process.env.DB_HOST || "localhost";
 const DB_PORT = process.env.DB_PORT || 3306;
@@ -41,31 +43,67 @@ const dbConfig =
 
 const db = knex(dbConfig);
 const app = express();
+
+// Make db available to routes
+app.set('db', db)
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
 
 async function ensureTables() {
+  // Users table
+  const hasUsers = await db.schema.hasTable("users");
+  if (!hasUsers) {
+    await db.schema.createTable("users", table => {
+      table.increments("id").primary();
+      table.string("email").notNullable().unique();
+      table.string("password_hash").notNullable();
+      table.string("name").notNullable();
+      table.timestamps(true, true);
+    });
+  }
+
+  // Accounts table (with user_id)
   const hasAccounts = await db.schema.hasTable("accounts");
   if (!hasAccounts) {
     await db.schema.createTable("accounts", table => {
       table.string("id").primary();
+      table.integer("user_id").notNullable().references("id").inTable("users");
       table.string("name").notNullable();
       table.string("type").notNullable();
       table.string("normalBalance").notNullable();
     });
+  } else {
+    // Add user_id column if it doesn't exist
+    const hasUserId = await db.schema.hasColumn("accounts", "user_id");
+    if (!hasUserId) {
+      await db.schema.alterTable("accounts", table => {
+        table.integer("user_id").notNullable().default(1);
+      });
+    }
   }
 
+  // Journals table (with user_id)
   const hasJournals = await db.schema.hasTable("journals");
   if (!hasJournals) {
     await db.schema.createTable("journals", table => {
       table.increments("id").primary();
+      table.integer("user_id").notNullable().references("id").inTable("users");
       table.string("date").notNullable();
       table.string("description").notNullable();
       table.string("reference");
-      table.text("debit").notNullable(); // JSON string
-      table.text("credit").notNullable(); // JSON string
+      table.text("debit").notNullable();
+      table.text("credit").notNullable();
     });
+  } else {
+    // Add user_id column if it doesn't exist
+    const hasUserId = await db.schema.hasColumn("journals", "user_id");
+    if (!hasUserId) {
+      await db.schema.alterTable("journals", table => {
+        table.integer("user_id").notNullable().default(1);
+      });
+    }
   }
 }
 
@@ -80,37 +118,45 @@ function mapJournalRow(row) {
   };
 }
 
+// Health check (no auth required)
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/api/accounts", async (_req, res, next) => {
+// Auth routes (no auth required)
+app.use("/api/auth", authRoutes);
+
+// Protected routes - require auth
+app.get("/api/accounts", authMiddleware, async (req, res, next) => {
   try {
-    const rows = await db("accounts").select();
+    const userId = req.user.userId;
+    const rows = await db("accounts").where({ user_id: userId }).select();
     res.json(rows);
   } catch (err) {
     next(err);
   }
 });
 
-app.post("/api/accounts", async (req, res, next) => {
+app.post("/api/accounts", authMiddleware, async (req, res, next) => {
   try {
+    const userId = req.user.userId;
     const { id, name, type, normalBalance } = req.body || {};
     if (!id || !name || !type || !normalBalance) {
-      return res.status(400).send("Field id, name, type, normalBalance wajib.");
+      return res.status(400).json({ message: "Field id, name, type, normalBalance wajib." });
     }
-    await db("accounts").insert({ id, name, type, normalBalance });
-    res.status(201).json({ id, name, type, normalBalance });
+    await db("accounts").insert({ id, user_id: userId, name, type, normalBalance });
+    res.status(201).json({ id, user_id: userId, name, type, normalBalance });
   } catch (err) {
     if (err && err.code === "SQLITE_CONSTRAINT") {
-      return res.status(400).send("Kode akun sudah digunakan.");
+      return res.status(400).json({ message: "Kode akun sudah digunakan." });
     }
     next(err);
   }
 });
 
-app.put("/api/accounts/:id", async (req, res, next) => {
+app.put("/api/accounts/:id", authMiddleware, async (req, res, next) => {
   try {
+    const userId = req.user.userId;
     const { id } = req.params;
     const updates = req.body || {};
     const allowed = ["name", "type", "normalBalance"];
@@ -119,49 +165,82 @@ app.put("/api/accounts/:id", async (req, res, next) => {
       if (updates[k]) payload[k] = updates[k];
     });
     if (Object.keys(payload).length === 0) {
-      return res.status(400).send("Tidak ada field yang diubah.");
+      return res.status(400).json({ message: "Tidak ada field yang diubah." });
     }
-    const updated = await db("accounts").where({ id }).update(payload);
-    if (!updated) return res.status(404).send("Akun tidak ditemukan.");
-    const acc = await db("accounts").where({ id }).first();
+    const updated = await db("accounts").where({ id, user_id: userId }).update(payload);
+    if (!updated) return res.status(404).json({ message: "Akun tidak ditemukan." });
+    const acc = await db("accounts").where({ id, user_id: userId }).first();
     res.json(acc);
   } catch (err) {
     next(err);
   }
 });
 
-async function getNextJournalId() {
-  const row = await db("journals").max("id as maxId").first();
+app.delete("/api/accounts/:id", authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+    const deleted = await db("accounts").where({ id, user_id: userId }).del();
+    if (!deleted) return res.status(404).json({ message: "Akun tidak ditemukan." });
+    res.json({ message: "Akun berhasil dihapus." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+async function getNextJournalId(userId) {
+  const row = await db("journals").where({ user_id: userId }).max("id as maxId").first();
   return (row?.maxId || 0) + 1;
 }
 
-app.get("/api/journals/next-id", async (_req, res, next) => {
+app.get("/api/journals/next-id", authMiddleware, async (req, res, next) => {
   try {
-    const nextId = await getNextJournalId();
+    const userId = req.user.userId;
+    const nextId = await getNextJournalId(userId);
     res.json({ nextId });
   } catch (err) {
     next(err);
   }
 });
 
-app.get("/api/journals", async (_req, res, next) => {
+app.get("/api/journals", authMiddleware, async (req, res, next) => {
   try {
-    const rows = await db("journals").select().orderBy([{ column: "date" }, { column: "id" }]);
+    const userId = req.user.userId;
+    const rows = await db("journals").where({ user_id: userId }).select().orderBy([{ column: "date" }, { column: "id" }]);
     res.json(rows.map(mapJournalRow));
   } catch (err) {
     next(err);
   }
 });
 
-app.post("/api/journals", async (req, res, next) => {
+app.post("/api/journals", authMiddleware, async (req, res, next) => {
   try {
-    const { id, date, description, reference, debit = [], credit = [] } = req.body || {};
-    if (!date || !description || !debit.length || !credit.length) {
-      return res.status(400).send("Field date, description, debit, credit wajib.");
+    const userId = req.user.userId;
+
+    // Support both formats: simple (debitAccountId/creditAccountId/amount) and full (debit/credit arrays)
+    let debit, credit;
+    const { id, date, description, reference, debitAccountId, creditAccountId, amount } = req.body || {};
+
+    if (debitAccountId && creditAccountId && amount) {
+      // Simple format from frontend transaction form
+      if (!date || !description) {
+        return res.status(400).json({ message: "Field date, description wajib." });
+      }
+      debit = [{ account: debitAccountId, amount: Number(amount) }];
+      credit = [{ account: creditAccountId, amount: Number(amount) }];
+    } else {
+      // Full format with debit/credit arrays
+      debit = req.body.debit || [];
+      credit = req.body.credit || [];
+      if (!date || !description || !debit.length || !credit.length) {
+        return res.status(400).json({ message: "Field date, description, debit, credit wajib." });
+      }
     }
-    const journalId = id || (await getNextJournalId());
+
+    const journalId = id || (await getNextJournalId(userId));
     await db("journals").insert({
       id: journalId,
+      user_id: userId,
       date,
       description,
       reference: reference || "",
@@ -181,10 +260,23 @@ app.post("/api/journals", async (req, res, next) => {
   }
 });
 
-app.get("/api/export", async (_req, res, next) => {
+app.delete("/api/journals/:id", authMiddleware, async (req, res, next) => {
   try {
-    const accounts = await db("accounts").select();
-    const journalRows = await db("journals").select().orderBy([{ column: "date" }, { column: "id" }]);
+    const userId = req.user.userId;
+    const { id } = req.params;
+    const deleted = await db("journals").where({ id, user_id: userId }).del();
+    if (!deleted) return res.status(404).json({ message: "Jurnal tidak ditemukan." });
+    res.json({ message: "Jurnal berhasil dihapus." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get("/api/export", authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const accounts = await db("accounts").where({ user_id: userId }).select();
+    const journalRows = await db("journals").where({ user_id: userId }).select().orderBy([{ column: "date" }, { column: "id" }]);
     const journals = journalRows.map(mapJournalRow);
     const lastJournalId = journalRows.length ? Math.max(...journalRows.map(r => r.id)) : 0;
     res.json({ accounts, journals, lastJournalId });
@@ -193,18 +285,21 @@ app.get("/api/export", async (_req, res, next) => {
   }
 });
 
-app.post("/api/import", async (req, res, next) => {
+app.post("/api/import", authMiddleware, async (req, res, next) => {
+  const userId = req.user.userId;
   const { accounts = [], journals = [] } = req.body || {};
   const trx = await db.transaction();
   try {
-    await trx("journals").del();
-    await trx("accounts").del();
+    await trx("journals").where({ user_id: userId }).del();
+    await trx("accounts").where({ user_id: userId }).del();
     if (accounts.length) {
-      await trx("accounts").insert(accounts);
+      const accountRows = accounts.map(a => ({ ...a, user_id: userId }));
+      await trx("accounts").insert(accountRows);
     }
     if (journals.length) {
       const rows = journals.map(j => ({
         id: j.id,
+        user_id: userId,
         date: j.date,
         description: j.description,
         reference: j.reference || "",
@@ -223,7 +318,7 @@ app.post("/api/import", async (req, res, next) => {
 
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).send(err.message || "Internal Server Error");
+  res.status(500).json({ message: err.message || "Internal Server Error" });
 });
 
 async function start() {
